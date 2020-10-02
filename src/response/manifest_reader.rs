@@ -6,8 +6,11 @@ use rocket::response::{self, Responder, Stream};
 impl<'r> Responder<'r> for ManifestReader {
     fn respond_to(self, req: &Request) -> response::Result<'r> {
         let ct = Header::new("Content-Type", self.content_type().to_string());
+        let digest = Header::new("docker-content-digest", self.digest().to_string());
+
         let mut resp = Stream::from(self.get_reader()).respond_to(req)?;
         resp.set_header(ct);
+        resp.set_header(digest);
 
         Ok(resp)
     }

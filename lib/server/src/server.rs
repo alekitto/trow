@@ -91,14 +91,13 @@ fn create_path(data_path: &str, dir: &str) -> Result<PathBuf, std::io::Error> {
 }
 
 fn does_manifest_match_digest(manifest: &DirEntry, digest: &str) -> bool {
-    digest
-        == match get_digest_from_manifest_path(manifest.path()) {
-            Ok(test_digest) => test_digest,
-            Err(e) => {
-                warn!("Failure reading repo {:?}", e);
-                "NO_MATCH".to_string()
-            }
+    match get_digests_from_manifest_path(manifest.path()) {
+        Ok(digests) => digests,
+        Err(e) => {
+            warn!("Failure reading repo {:?}", e);
+            vec![]
         }
+    }.iter().any(|d| d == digest)
 }
 
 struct RepoIterator {
@@ -179,14 +178,13 @@ fn is_path_writable(path: &PathBuf) -> io::Result<bool> {
     Ok(!permissions.readonly())
 }
 
-fn get_digest_from_manifest_path<P: AsRef<Path>>(path: P) -> Result<String, Error> {
+fn get_digests_from_manifest_path<P: AsRef<Path>>(path: P) -> Result<Vec<String>, Error> {
     let digest_date = fs::read_to_string(path)?;
-    //Should be digest followed by date, but allow for digest only
-    Ok(digest_date
-        .split(' ')
-        .next()
-        .unwrap_or(&digest_date)
-        .to_string())
+    let digests = digest_date
+        .split('\n')
+        .map(|l| l.split(' ').next().unwrap_or(&l).to_string());
+
+    Ok(digests.collect())
 }
 
 impl TrowServer {
@@ -242,7 +240,16 @@ impl TrowServer {
     }
 
     fn get_digest_from_manifest(&self, repo_name: &str, tag: &str) -> Result<String, Error> {
-        get_digest_from_manifest_path(self.manifests_path.join(repo_name).join(tag))
+        let res = get_digests_from_manifest_path(self.manifests_path.join(repo_name).join(tag));
+
+        match res {
+            Ok(digests) => if digests.is_empty() {
+                Err(failure::err_msg("Manifest is empty"))
+            } else {
+                Ok(digests.iter().next().unwrap().to_string())
+            }
+            Err(e) => Err(e)
+        }
     }
 
     fn save_tag(&self, digest: &str, repo_name: &str, tag: &str) -> Result<(), Error> {

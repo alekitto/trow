@@ -7,8 +7,8 @@ cd "$src_dir"
 
 # Github Package Repository doesn't support multi-arch images currently, so on hold
 # Or pulls without authentication...
-GH_REPO=${DOCKER_REPO:-"docker.pkg.github.com/containersolutions/trow/trow"}
-REPO=${DOCKER_REPO:-"containersol/trow"}
+GH_REPO=${DOCKER_REPO:-"ghcr.io/alekitto/trow"}
+REPO=${DOCKER_REPO:-"alekitto/trow"}
 
 if [[ "$CI" = true ]]
 then
@@ -45,8 +45,8 @@ then
 
     docker tag $IMAGE containersol/trow:latest
     docker push containersol/trow:latest
-    docker tag $IMAGE docker.pkg.github.com/containersolutions/trow/trow:default 
-    docker push docker.pkg.github.com/containersolutions/trow/trow:default 
+    docker tag $IMAGE docker.pkg.github.com/containersolutions/trow/trow:default
+    docker push docker.pkg.github.com/containersolutions/trow/trow:default
 
     # Add new image name to manifest template
     sed -i "s|{{TROW_AMD64_IMAGE}}|${IMAGE}|" ./manifest.tmpl

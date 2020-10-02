@@ -9,6 +9,7 @@ use trow_proto::{
     UploadRequest, VerifyManifestRequest,
 };
 
+use rocket::http::{Accept, MediaType, QMediaType};
 use tonic::Request;
 
 use crate::chrono::TimeZone;
@@ -18,6 +19,8 @@ use serde_json::Value;
 use std::convert::TryInto;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
+use std::str::FromStr;
+use rocket::response::Responder;
 
 pub struct ClientInterface {
     server: String,
@@ -49,6 +52,27 @@ fn extract_images<'a>(blob: &Value, images: &'a mut Vec<String>) -> &'a Vec<Stri
         _ => (),
     }
     images
+}
+
+#[derive(Deserialize)]
+struct ManifestPlatform {
+    architecture: String,
+    os: String,
+}
+
+#[derive(Deserialize)]
+struct Manifest {
+    mediaType: String,
+    digest: String,
+    size: u32,
+    platform: Option<ManifestPlatform>,
+}
+
+#[derive(Deserialize)]
+struct ManifestList {
+    mediaType: String,
+    schemaVersion: u32,
+    manifests: Vec<Manifest>,
 }
 
 impl ClientInterface {
@@ -180,14 +204,14 @@ impl ClientInterface {
         Ok((file, resp.uuid))
     }
 
-    pub async fn get_reader_for_manifest(
+    async fn create_manifest_reader(
         &self,
-        repo_name: &RepoName,
+        repo_name: &str,
         reference: &str,
     ) -> Result<ManifestReader, Error> {
         let mr = ManifestRef {
             reference: reference.to_owned(),
-            repo_name: repo_name.0.clone(),
+            repo_name: repo_name.to_owned(),
         };
         let resp = self
             .connect_registry()
@@ -198,12 +222,67 @@ impl ClientInterface {
 
         //For the moment we know it's a file location
         let file = OpenOptions::new().read(true).open(resp.path)?;
-        let mr = create_manifest_reader(
+
+        Ok(create_manifest_reader(
             Box::new(file),
             resp.content_type,
             Digest(resp.digest.to_owned()),
-        );
-        Ok(mr)
+        ))
+    }
+
+    pub async fn get_reader_for_manifest(
+        &self,
+        repo_name: &RepoName,
+        reference: &str,
+        accept: Option<&Accept>,
+    ) -> Result<ManifestReader, Error> {
+        let mr = self
+            .create_manifest_reader(&repo_name.0.clone(), reference.clone())
+            .await?;
+
+        let media_type = MediaType::from_str(mr.content_type());
+        if accept.is_none() || media_type.is_err() {
+            return Ok(mr);
+        }
+
+        let qmedia_type = QMediaType::from(media_type.unwrap());
+        if accept.unwrap().iter().any(|acceptable| *acceptable == qmedia_type) {
+            return Ok(mr);
+        }
+
+        let mut str = String::new();
+        mr.get_reader().read_to_string(&mut str)?;
+
+        let manifest: Value = serde_json::from_str(&str)?;
+        if "application/vnd.docker.distribution.manifest.list.v2+json" == manifest["mediaType"] {
+            let list: ManifestList = serde_json::from_value(manifest)?;
+
+            for manifest in list.manifests {
+                let br = BlobRef {
+                    repo_name: repo_name.0.clone(),
+                    digest: manifest.digest.clone(),
+                };
+
+                let blob_resp = self
+                    .connect_registry()
+                    .await?
+                    .get_read_location_for_blob(Request::new(br))
+                    .await?
+                    .into_inner();
+
+                //For the moment we know it's a file location
+                let file = OpenOptions::new().read(true).open(blob_resp.path)?;
+                let mr = create_manifest_reader(
+                    Box::new(file),
+                    manifest.mediaType,
+                    Digest(manifest.digest),
+                );
+
+                return Ok(mr)
+            }
+        }
+
+        self.create_manifest_reader(&repo_name.0.clone(), reference).await
     }
 
     pub async fn get_manifest_history(

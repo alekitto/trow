@@ -7,6 +7,7 @@ use crate::response::trow_token::{self, TrowToken};
 use crate::response::upload_info::UploadInfo;
 use crate::types::*;
 use crate::TrowConfig;
+use rocket::http::Accept;
 use rocket::http::uri::{Origin, Uri};
 use rocket::request::Request;
 use rocket::State;
@@ -158,9 +159,10 @@ fn get_manifest(
     ci: rocket::State<ClientInterface>,
     onename: String,
     reference: String,
+    accept: Option<&Accept>,
 ) -> Result<ManifestReader, Error> {
     let rn = RepoName(onename);
-    let f = ci.get_reader_for_manifest(&rn, &reference);
+    let f = ci.get_reader_for_manifest(&rn, &reference, accept);
     let mut rt = Runtime::new().unwrap();
     rt.block_on(f)
         .map_err(|_| Error::ManifestUnknown(reference))
@@ -173,9 +175,10 @@ fn get_manifest_2level(
     user: String,
     repo: String,
     reference: String,
+    accept: Option<&Accept>,
 ) -> Option<ManifestReader> {
     let rn = RepoName(format!("{}/{}", user, repo));
-    let r = ci.get_reader_for_manifest(&rn, &reference);
+    let r = ci.get_reader_for_manifest(&rn, &reference, accept);
     let mut rt = Runtime::new().unwrap();
     rt.block_on(r).ok()
 }
@@ -191,9 +194,10 @@ fn get_manifest_3level(
     user: String,
     repo: String,
     reference: String,
+    accept: Option<&Accept>,
 ) -> Option<ManifestReader> {
     let rn = RepoName(format!("{}/{}/{}", org, user, repo));
-    let r = ci.get_reader_for_manifest(&rn, &reference);
+    let r = ci.get_reader_for_manifest(&rn, &reference, accept);
     Runtime::new().unwrap().block_on(r).ok()
 }
 
@@ -209,9 +213,10 @@ fn get_manifest_4level(
     user: String,
     repo: String,
     reference: String,
+    accept: Option<&Accept>,
 ) -> Option<ManifestReader> {
     let rn = RepoName(format!("{}/{}/{}/{}", fourth, org, user, repo));
-    let r = ci.get_reader_for_manifest(&rn, &reference);
+    let r = ci.get_reader_for_manifest(&rn, &reference, accept);
     Runtime::new().unwrap().block_on(r).ok()
 }
 
